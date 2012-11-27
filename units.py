@@ -1,4 +1,6 @@
 import math
+import numpy
+import random
 import sys
 from collections import defaultdict
 from collections import namedtuple
@@ -68,8 +70,6 @@ def calculate_costs(contestants,comparison_data,cost_function):
       else:
         costs[u][v] = cost_function( comparison_data[(u,v)] )
   return costs
-    
-  return comparison_data
 
 def calculate_MFAS_cost(datum):
   return 0 if datum.wins > datum.losses else datum.losses - datum.wins
@@ -82,7 +82,6 @@ def calculate_winning_percentage_cost(datum):
   
   percentage = float(datum.wins) / float(datum.total())
   #if percentage > 0.99:
-  #  print 'hey'
   #  return -math.log1p(percentage - 1.0)
   #else:
   return -math.log( percentage )
@@ -107,26 +106,21 @@ def calculate_heuristic_costs(contestants,sorted_list_of_costs):
   costs = [0.0]*(number_of_contestants+1)
   for i in range(0,number_of_contestants+1):
     costs[i] = heuristic_cost( number_of_contestants, i, sorted_list_of_costs )
-    #costs[i] = math.fsum(sorted_list_of_costs[0:triangular_number(number_of_contestants-1)-triangular_number(i-1)]) #\
-    # - math.fsum( sorted_list_of_costs[-triangular_number(number_of_contestants-1)-1:-1] )
-    #if costs[i] < 0.0:
-    #  costs[i] = 0.0
-    #else:
-    #  print 'one bigger than zero'
   return costs
 
 def extract_ranking(h):
   return "" if h.predecessor is None else "%s%s\n" % (extract_ranking(h.predecessor), h.vertex)
 
 def heuristic_cost(number_of_contestants,number_of_contestants_ranked,remaining_costs):
-  cost = math.fsum(remaining_costs[0:triangular_number(number_of_contestants-1)-triangular_number(number_of_contestants_ranked-1)])
-  #print cost
-  return cost
+  return sum(remaining_costs[0:triangular_number(number_of_contestants-number_of_contestants_ranked-1)])
 
-def search_for_ranking_without_fancy_priority_queue(contestants,costs,heuristic_costs):
+def number_ranked( h ):
+  return 0 if h.predecessor is None else 1 + number_ranked(h.predecessor)
+
+def search_for_ranking_constant_heuristic_costs(contestants,costs,heuristic_costs):
   contestants = list(contestants)
   number_of_contestants = len(contestants)
-  hypothesis = namedtuple("hypothesis", "actual_cost, cost, state, predecessor, vertex")#remaining_costs, vertex")
+  hypothesis = namedtuple("hypothesis", "actual_cost, cost, state, predecessor, vertex")
   initial_hypothesis = hypothesis(
     actual_cost=0.0,
     cost=heuristic_costs[0],
@@ -134,36 +128,41 @@ def search_for_ranking_without_fancy_priority_queue(contestants,costs,heuristic_
     predecessor=None,
     vertex=None)
   
-  agenda = {}
-  agenda[0] = initial_hypothesis
+  agenda = PriorityQueueForSearch( lambda x,y,: x.cost > y.cost )
+  agenda.EnqueueIfBetter(initial_hypothesis)
+  
   goal = bitmap(xrange(len(contestants)))
 
   nodes_explored = 0
+  visited_states = dict()
 
-  while len(agenda) > 0:
-    h = sorted(agenda.itervalues(), key=lambda h: h.cost)[0]
-
+  while not agenda.IsEmpty():
+    h = agenda.Dequeue()
+    
     if h.state == goal:
       return h, nodes_explored
-    del agenda[h.state]
+
+    if not h.state in visited_states or visited_states[ h.state ].cost > h.cost:
+      visited_states[ h.state ] = h
 
     nodes_explored += 1
-  
+
     for u in indexes(goal^h.state):
       new_state = h.state | bitmap([u])
       added_cost = 0.0
       number_of_contestants_ranked = count_set_bits(new_state)
-      added_cost = math.fsum( map( lambda w: costs[contestants[u]][contestants[w]], indexes(goal^new_state) ) )
+      added_cost = sum( map( lambda w: costs[contestants[u]][contestants[w]], indexes(goal^new_state) ) )
       new_h = hypothesis(
         actual_cost=h.actual_cost + added_cost,
         cost=h.actual_cost + added_cost + heuristic_costs[number_of_contestants_ranked],
         state=new_state,
         predecessor=h,
         vertex=contestants[u] )
-      if new_state not in agenda or agenda[new_state].actual_cost > new_h.actual_cost:
-        agenda[new_state] = new_h
+        
+      if not new_h.state in visited_states or visited_states[ new_h.state ].cost > new_h.cost:
+        agenda.EnqueueIfBetter(new_h)
 
-def search_for_ranking_consistent_heuristic(contestants,costs,heuristic_costs):
+def search_for_ranking(contestants,costs):
   contestants = list(contestants)
   number_of_contestants = len(contestants)
   sorted_costs = make_sorted_list_of_costs(contestants, costs)
@@ -218,42 +217,89 @@ def search_for_ranking_consistent_heuristic(contestants,costs,heuristic_costs):
       if not new_h.state in visited_states or visited_states[ new_h.state ].actual_cost > new_h.actual_cost:
         agenda.EnqueueIfBetter(new_h)
         
-def search_for_ranking(contestants,costs,heuristic_costs):
-  contestants = list(contestants)
-  number_of_contestants = len(contestants)
-  hypothesis = namedtuple("hypothesis", "actual_cost, cost, state, predecessor, vertex")
-  initial_hypothesis = hypothesis(
-    actual_cost=0.0,
-    cost=heuristic_costs[0],
-    state=0,
-    predecessor=None,
-    vertex=None)
+def get_lines_from_file(path):
+
+  textFile = open(path)
+  lines = textFile.readlines()
+  textFile.close()
+  return lines
+
+def find_ranking(lines,cost_function):
+  contestants = extract_contestants_from_tournament_file(lines)
+  comparison_data = extract_comparison_data_from_tournament_file(lines)
+  costs = calculate_costs(contestants,comparison_data,cost_function)
+  sorted_list_of_costs = make_sorted_list_of_costs(contestants,costs)
+  path, nodes_explored = search_for_ranking(contestants,costs)
+
+  return extract_ranking(path)
+
+def generate_random_wins( contests, probability_of_win ):
+  wins = 0
+  for i in xrange(contests):
+    if random.random() < probability_of_win:
+      wins += 1
+  return wins
+
+def generate_wins_and_losses(arguments):
+  wins_and_losses = dict()
+  contestants = arguments.contestants.split(',')
+  if len(contestants) == 1:
+    contestants = range(1,int(contestants[0])+1)
+  for i in range(len(contestants)):
+    wins_and_losses[contestants[i]] = dict()
+    for j in range(i+1,len(contestants)):
+      comparisons = int(random.gauss(arguments.mean_contests,arguments.stdev_contests))
+      if comparisons <= 0:
+        continue
+      #percentWon = random.gauss(arguments.meanWinPercentage,arguments.stdevWinPercentage)
+      #while percentWon > 1.0:
+      #  percentWon = random.gauss(arguments.meanWinPercentage,arguments.stdevWinPercentage)
+      #if percentWon < 0.0:
+      #  percentWon = 0.0
+      #wins = int(round(comparisons * percentWon))
+      wins = generate_random_wins( comparisons, arguments.mean_winning_percentage )
+      wins_and_losses[contestants[i]][contestants[j]] = ( wins, comparisons - wins )
+  return wins_and_losses
+
+def generate_lines_of_tournament_text(wins_and_losses):
+  def sort_key(item):
+    ( count, contestant1, contestant2, comparator ) = item.split()
+    return ( contestant1, contestant2 )
+
+  text = list()
+  for i in wins_and_losses.iterkeys():
+    for j in wins_and_losses[i].iterkeys():
+      wins, losses = wins_and_losses[i][j]
+      text.append('%7d %s %s <' % ( losses, i, j ) )
+      text.append('%7d %s %s >' % ( wins, i, j ) )
+      text.append('%7d %s %s <' % ( wins, j, i ) )
+      text.append('%7d %s %s >' % ( losses, j, i ) )
+   
+  return sorted(text,key=sort_key)
+
+def generate_tournament_text(arguments):
+  return '\n'.join(generate_lines_of_tournament_text(generate_wins_and_losses(arguments)))
+
+def get_distributions_of_counts_and_winning_percentages( comparison_data ):
+  counts = map( lambda x: x.total(), comparison_data )
+  winning_percentages = map( lambda x: x.wins - x.total(), comparison_data )
+  return numpy.mean( counts ), numpy.std( counts ), numpy.mean( winning_percentages ), numpy.std( winning_percentages )
+
+class AClass:
+  None
+
+def construct_arguments_for_ranking_generation(path_to_tournament_file):
+  meanCounts, stdevCounts, meanWinningPercentages, stdevWinningPercentages = \
+    get_distributions_of_counts_and_winning_percentages(
+      extract_comparison_data_from_tournament_file(
+        get_lines_from_file(path_to_tournament_file) ) )
   
-  agenda = PriorityQueueForSearch( lambda x,y: x.cost > y.cost )
-  agenda.EnqueueIfBetter(initial_hypothesis)
+  arguments = AClass()
+  arguments.meanWinPercentage = meanWinningPercentages
+  arguments.stdevWinPercentage = stdevWinningPercentages
+  arguments.meanComparisons = meanCounts
+  arguments.stdevComparisons = stdevCounts
+  arguments.contestants = str(len(systems))
   
-  goal = bitmap(xrange(len(contestants)))
-
-  nodes_explored = 0
-
-  while not agenda.IsEmpty():
-    h = agenda.Dequeue()
-    
-    if h.state == goal:
-      return h, nodes_explored
-
-    nodes_explored += 1
-
-    for u in indexes(goal^h.state):
-      new_state = h.state | bitmap([u])
-      added_cost = 0.0
-      number_of_contestants_ranked = count_set_bits(new_state)
-      added_cost = math.fsum( map( lambda w: costs[contestants[u]][contestants[w]], indexes(goal^new_state) ) )
-      new_h = hypothesis(
-        actual_cost=h.actual_cost + added_cost,
-        cost=h.actual_cost + added_cost + heuristic_costs[number_of_contestants_ranked],
-        state=new_state,
-        predecessor=h,
-        vertex=contestants[u] )
-      
-      agenda.EnqueueIfBetter(new_h)
+  return arguments
+        

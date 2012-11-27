@@ -1,4 +1,5 @@
 #!/usr/bin/python
+import os
 import sys
 
 from units import *
@@ -147,7 +148,7 @@ def test_calculate_heuristic_costs():
   contestants = set([1,2,3,4])
   sorted_list_of_costs = [1,2,3,4,5,6]
   return compare_results(
-    [21,21,15,6,0],
+    [21,6,1,0,0],
     calculate_heuristic_costs( contestants, sorted_list_of_costs ) )
   
 def test_search_for_ranking():
@@ -157,12 +158,73 @@ def test_search_for_ranking():
     1:{2:0,3:2},
     2:{1:4,3:1},
     3:{1:6,2:0} }
-  heuristic_costs = make_sorted_list_of_costs(contestants,costs)
-  h, nodes_searched = search_for_ranking(contestants,costs,heuristic_costs)
+  h, nodes_searched = search_for_ranking(contestants,costs)
   
   return compare_results(
     ["1","3","2"],
     extract_ranking(h).strip().split("\n") )
+  
+def test_simple_astar_heuristic():
+  path_to_tournaments = '../data/tournaments'
+  heuristic_costs = [0.0]*32
+  for file_name in os.listdir( path_to_tournaments ):
+    path = os.path.join(path_to_tournaments,file_name)
+    if os.path.getsize(path) > 15000:
+      continue
+    if file_name == 'wmt11.English,Spanish.individual':
+      #Ignore this one because there is a tie in the ranking.
+      continue
+    lines = get_lines_from_file(path)
+    contestants = extract_contestants_from_tournament_file(lines)
+    comparison_data = extract_comparison_data_from_tournament_file(lines)
+    costs = calculate_costs(contestants,comparison_data,calculate_winning_percentage_cost)
+    sorted_list_of_costs = make_sorted_list_of_costs(contestants,costs)
+    h, nodes_explored = search_for_ranking_constant_heuristic_costs(contestants,costs,heuristic_costs)
+
+    expected_ranking = extract_ranking(h)
+    
+    h, nodes_explored = search_for_ranking_constant_heuristic_costs(contestants,costs,calculate_heuristic_costs(contestants,sorted_list_of_costs))
+    actual_ranking = extract_ranking(h)
+    
+    if ( expected_ranking != actual_ranking ):
+      print 'Bad ranking for %s' % file_name
+      print expected_ranking
+      print actual_ranking
+      return False
+  
+  return True
+  
+def test_astar_heuristic():
+  path_to_tournaments = '../data/tournaments'
+  heuristic_costs = [0.0]*32
+  for file_name in os.listdir( path_to_tournaments ):
+    path = os.path.join(path_to_tournaments,file_name)
+    if os.path.getsize(path) > 15000:
+      continue
+    if file_name == 'wmt11.English,Spanish.individual':
+      #Ignore this one because there is a tie in the ranking.
+      continue
+    lines = get_lines_from_file(path)
+    contestants = extract_contestants_from_tournament_file(lines)
+    comparison_data = extract_comparison_data_from_tournament_file(lines)
+    costs = calculate_costs(contestants,comparison_data,calculate_winning_percentage_cost)
+    sorted_list_of_costs = make_sorted_list_of_costs(contestants,costs)
+    h, nodes_explored = search_for_ranking_constant_heuristic_costs(contestants,costs,heuristic_costs)
+
+    expected_ranking = extract_ranking(h)
+    
+    if ( expected_ranking != find_ranking(lines,calculate_winning_percentage_cost) ):
+      print 'Bad ranking for %s' % file_name
+      print expected_ranking
+      print find_ranking(lines,calculate_winning_percentage_cost)
+      return False
+  
+  return True
+
+def test_generate_random_wins():
+  return compare_results(
+    [0,1,100],
+    [generate_random_wins(100,0.0),generate_random_wins(1,1.0),generate_random_wins(100,1.0)] )
   
 
 if __name__ == '__main__':
@@ -180,4 +242,8 @@ if __name__ == '__main__':
   print_result('triangular_number',test_triangular_number())
   print_result('calculate_heuristic_costs',test_calculate_heuristic_costs())
   print_result('search_for_ranking',test_search_for_ranking())
+  print_result('A* heuristic',test_astar_heuristic())
+  print_result('simple A* heuristic',test_simple_astar_heuristic())
+  print_result('generate_random_wins',test_generate_random_wins())
+  
   
