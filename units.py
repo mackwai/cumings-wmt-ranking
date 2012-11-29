@@ -43,10 +43,21 @@ def read_lines_from_stdin():
 
 def extract_contestants_from_tournament_file(lines):
   contestants = set()
+  line_number = 0
   for line in lines:
-    (count, sys1, sys2, order) = line.strip().split()
+    try:
+      count, sys1, sys2, order = line.strip().split()
+    except:
+      print "***"
+      print lines
+      print "***"
+      print line
+      print len(lines)
+      print line_number
+      raise
     contestants.add(sys1)
     contestants.add(sys2)
+    line_number += 1
     
   return contestants
 
@@ -59,6 +70,12 @@ def extract_comparison_data_from_tournament_file(lines):
     elif order == ">":
       comparison_data[(sys1,sys2)].wins = int(count)
   return comparison_data
+
+def count_comparisons(lines):
+  comparisons = 0
+  for datum in extract_comparison_data_from_tournament_file(lines).itervalues():
+    comparisons += datum.wins
+  return comparisons
       
 def calculate_costs(contestants,comparison_data,cost_function):
   costs = dict()
@@ -224,14 +241,50 @@ def get_lines_from_file(path):
   textFile.close()
   return lines
 
-def find_ranking(lines,cost_function):
+def find_least_cost_path(lines,cost_function):
   contestants = extract_contestants_from_tournament_file(lines)
   comparison_data = extract_comparison_data_from_tournament_file(lines)
   costs = calculate_costs(contestants,comparison_data,cost_function)
   sorted_list_of_costs = make_sorted_list_of_costs(contestants,costs)
   path, nodes_explored = search_for_ranking(contestants,costs)
 
-  return extract_ranking(path)
+  return path
+
+def find_ranking(lines,cost_function):
+  return extract_ranking(find_least_cost_path(lines,cost_function))
+
+def calculate_cost_of_a_false_judgement(datum):
+  return 0 if datum.wins > datum.losses else datum.losses
+
+def find_fewest_false_judgements_possible(lines):
+  return find_least_cost_path(lines,calculate_cost_of_a_false_judgement).actual_cost
+
+def calculate_prior_probability_of_true_judgement(lines):
+  x = float(count_comparisons(lines))
+  n = x - float(find_fewest_false_judgements_possible(lines))
+  d = 2.0 * x
+  return n/d + 1.0/4.0
+
+def close_testimonial_cost(prior_probability_of_true_judgement):
+  def calculate_testimonial_cost(datum):
+    affirmations_in_excess_of_denials = datum.wins - datum.losses
+    denials_in_excess_of_affirmations = datum.losses - datum.wins
+    prior_probability_of_false_judgement = 1.0 - prior_probability_of_true_judgement
+    
+    if affirmations_in_excess_of_denials == 0:
+      return -math.log(0.5)
+    
+    if affirmations_in_excess_of_denials > 0:
+      x = prior_probability_of_true_judgement**affirmations_in_excess_of_denials
+      y = prior_probability_of_false_judgement**affirmations_in_excess_of_denials
+
+    if denials_in_excess_of_affirmations > 0:
+      x = prior_probability_of_false_judgement**denials_in_excess_of_affirmations
+      y = prior_probability_of_true_judgement**denials_in_excess_of_affirmations
+
+    return -math.log( x / ( x + y ) )
+  
+  return calculate_testimonial_cost
 
 def generate_random_wins( contests, probability_of_win ):
   wins = 0
@@ -262,10 +315,6 @@ def generate_wins_and_losses(arguments):
   return wins_and_losses
 
 def generate_lines_of_tournament_text(wins_and_losses):
-  def sort_key(item):
-    ( count, contestant1, contestant2, comparator ) = item.split()
-    return ( contestant1, contestant2 )
-
   text = list()
   for i in wins_and_losses.iterkeys():
     for j in wins_and_losses[i].iterkeys():
@@ -274,32 +323,73 @@ def generate_lines_of_tournament_text(wins_and_losses):
       text.append('%7d %s %s >' % ( wins, i, j ) )
       text.append('%7d %s %s <' % ( wins, j, i ) )
       text.append('%7d %s %s >' % ( losses, j, i ) )
+      
+  def sort_key(item):
+    ( count, contestant1, contestant2, comparator ) = item.split()
+    return ( contestant1, contestant2 )
    
   return sorted(text,key=sort_key)
 
 def generate_tournament_text(arguments):
-  return '\n'.join(generate_lines_of_tournament_text(generate_wins_and_losses(arguments)))
+  return generate_lines_of_tournament_text(generate_wins_and_losses(arguments))
 
 def get_distributions_of_counts_and_winning_percentages( comparison_data ):
-  counts = map( lambda x: x.total(), comparison_data )
-  winning_percentages = map( lambda x: x.wins - x.total(), comparison_data )
+  data = list(comparison_data.itervalues())
+  counts = map( lambda x: x.total(), data )
+  winning_percentages = map( lambda x: float(x.wins) / float(x.total()), filter( lambda x: x.wins > x.losses, data ) )
   return numpy.mean( counts ), numpy.std( counts ), numpy.mean( winning_percentages ), numpy.std( winning_percentages )
 
 class AClass:
   None
 
 def construct_arguments_for_ranking_generation(path_to_tournament_file):
+  lines = get_lines_from_file(path_to_tournament_file)
   meanCounts, stdevCounts, meanWinningPercentages, stdevWinningPercentages = \
     get_distributions_of_counts_and_winning_percentages(
       extract_comparison_data_from_tournament_file(
-        get_lines_from_file(path_to_tournament_file) ) )
+        lines ) )
   
   arguments = AClass()
-  arguments.meanWinPercentage = meanWinningPercentages
-  arguments.stdevWinPercentage = stdevWinningPercentages
-  arguments.meanComparisons = meanCounts
-  arguments.stdevComparisons = stdevCounts
-  arguments.contestants = str(len(systems))
+  arguments.mean_winning_percentage = meanWinningPercentages
+  arguments.stdev_winning_percentage = stdevWinningPercentages
+  arguments.mean_contests = meanCounts
+  arguments.stdev_contests = stdevCounts
+  arguments.contestants = str(len(extract_contestants_from_tournament_file(lines)))
   
   return arguments
+
+def ranking_is_correct(ranking):
+  lastItem = 0
+  for line in ranking.split('\n'):
+    if len(line) == 0:
+      continue
+    else:
+      try:
+        item = int(line)
+      except:
+        print "***"
+        print line
+        print "***"
+        raise
+    if item < lastItem:
+      return False
+    lastItem = item
+  return True
+
+def estimate_confidence(path_to_tournament_file,cost_function,iterations):
+  arguments = construct_arguments_for_ranking_generation(path_to_tournament_file)
+  #print arguments.mean_winning_percentage
+  #print arguments.stdev_winning_percentage
+  #print arguments.mean_contests
+  #print arguments.stdev_contests
+  #print arguments.contestants
+  correctRankings = 0
+  for i in xrange(0,iterations):
+    text = generate_tournament_text(arguments)
+    #print "\n".join(text)
+    ranking = find_ranking(text,cost_function)
+    #print ranking
+    if ranking_is_correct( ranking ):
+      correctRankings += 1
+  return float(correctRankings) / float(iterations)
         

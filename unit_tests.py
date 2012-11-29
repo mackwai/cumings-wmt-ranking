@@ -226,6 +226,54 @@ def test_generate_random_wins():
     [0,1,100],
     [generate_random_wins(100,0.0),generate_random_wins(1,1.0),generate_random_wins(100,1.0)] )
   
+def test_generate_lines_of_tournament_text():
+  wins_and_losses = {
+    'winner' : { 'middle': (100,10) },
+    'winner' : { 'loser': (100,0) },
+    'middle' : { 'loser': (11,1) } }
+  
+  return "\n".join(generate_lines_of_tournament_text(wins_and_losses)) == """     11 loser middle <
+      1 loser middle >
+    100 loser winner <
+      0 loser winner >
+      1 middle loser <
+     11 middle loser >
+      0 winner loser <
+    100 winner loser >"""
+    
+def test_count_comparisons():
+  lines = '''     32 _ref cmu-heafield-combo <
+    219 _ref cmu-heafield-combo >
+     33 _ref upv-prhlt-combo <
+    225 _ref upv-prhlt-combo >
+    219 cmu-heafield-combo _ref <
+     32 cmu-heafield-combo _ref >
+     66 cmu-heafield-combo upv-prhlt-combo <
+    111 cmu-heafield-combo upv-prhlt-combo >
+    225 upv-prhlt-combo _ref <
+     33 upv-prhlt-combo _ref >
+    111 upv-prhlt-combo cmu-heafield-combo <
+     66 upv-prhlt-combo cmu-heafield-combo >
+'''.splitlines(
+  )
+  return count_comparisons(lines) == 686
+
+def test_find_fewest_false_judgements_possible():
+  lines = '''     32 _ref cmu-heafield-combo <
+    219 _ref cmu-heafield-combo >
+    225 _ref upv-prhlt-combo <
+     33 _ref upv-prhlt-combo >
+    219 cmu-heafield-combo _ref <
+     32 cmu-heafield-combo _ref >
+     66 cmu-heafield-combo upv-prhlt-combo <
+    111 cmu-heafield-combo upv-prhlt-combo >
+     33 upv-prhlt-combo _ref <
+    225 upv-prhlt-combo _ref >
+    111 upv-prhlt-combo cmu-heafield-combo <
+     66 upv-prhlt-combo cmu-heafield-combo >
+'''.splitlines()
+  return find_fewest_false_judgements_possible(lines) == 111
+  
 
 if __name__ == '__main__':
   print 'Running unit tests...'
@@ -242,8 +290,11 @@ if __name__ == '__main__':
   print_result('triangular_number',test_triangular_number())
   print_result('calculate_heuristic_costs',test_calculate_heuristic_costs())
   print_result('search_for_ranking',test_search_for_ranking())
-  print_result('A* heuristic',test_astar_heuristic())
-  print_result('simple A* heuristic',test_simple_astar_heuristic())
+  #print_result('A* heuristic',test_astar_heuristic())
+  #print_result('simple A* heuristic',test_simple_astar_heuristic())
   print_result('generate_random_wins',test_generate_random_wins())
+  print_result('generate_lines_of_tournament_text',test_generate_lines_of_tournament_text())
+  print_result('count_comparisons',test_count_comparisons())
+  print_result('find_fewest_false_judgements_possible',test_find_fewest_false_judgements_possible())
   
   
