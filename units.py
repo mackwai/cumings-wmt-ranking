@@ -1,3 +1,4 @@
+import fractions
 import math
 import numpy
 import random
@@ -86,6 +87,9 @@ def calculate_costs(contestants,comparison_data,cost_function):
         continue
       else:
         costs[u][v] = cost_function( comparison_data[(u,v)] )
+        #print u
+        #print v
+        #print -math.log(float(costs[u][v]))
   return costs
 
 def calculate_MFAS_cost(datum):
@@ -103,14 +107,14 @@ def calculate_winning_percentage_cost(datum):
   #else:
   return -math.log( percentage )
   
-def make_sorted_list_of_costs(contestants,costs):
+def make_sorted_list_of_costs(contestants,costs,reverse=False):
   list_of_costs = list()
   for contestant1 in contestants:
     for contestant2 in contestants:
       if contestant1 == contestant2:
         continue
       list_of_costs.append(costs[contestant1][contestant2])
-  return sorted(list_of_costs)
+  return sorted(list_of_costs,reverse=reverse)
 
 def triangular_number(n):
   return n*(n+1)/2 if n > 0 else 0
@@ -131,12 +135,18 @@ def extract_ranking(h):
 def heuristic_cost(number_of_contestants,number_of_contestants_ranked,remaining_costs):
   return sum(remaining_costs[0:triangular_number(number_of_contestants-number_of_contestants_ranked-1)])
 
+def multiplicative_heuristic_cost(number_of_contestants,number_of_contestants_ranked,remaining_costs):
+  product = fractions.Fraction(1,1)
+  for cost in remaining_costs[0:triangular_number(number_of_contestants-number_of_contestants_ranked-1)]:
+    product *= cost
+  return product
+
 def number_ranked( h ):
   return 0 if h.predecessor is None else 1 + number_ranked(h.predecessor)
 
 def search_for_ranking_constant_heuristic_costs(contestants,costs,heuristic_costs):
   contestants = list(contestants)
-  number_of_contestants = len(contestants)
+  #number_of_contestants = len(contestants)
   hypothesis = namedtuple("hypothesis", "actual_cost, cost, state, predecessor, vertex")
   initial_hypothesis = hypothesis(
     actual_cost=0.0,
@@ -207,8 +217,8 @@ def search_for_ranking(contestants,costs):
 
     nodes_explored += 1
     
-    if not h.state in visited_states or visited_states[ h.state ].actual_cost > h.actual_cost:
-      visited_states[ h.state ] = h
+    #if not h.state in visited_states or visited_states[ h.state ].cost > h.cost:
+    #  visited_states[ h.state ] = h
 
     for u in indexes(goal^h.state):
       new_state = h.state | bitmap([u])
@@ -231,7 +241,66 @@ def search_for_ranking(contestants,costs):
         remaining_costs=remaining_costs,
         vertex=contestants[u] )
       
-      if not new_h.state in visited_states or visited_states[ new_h.state ].actual_cost > new_h.actual_cost:
+      #if not new_h.state in visited_states or visited_states[ new_h.state ].cost > new_h.cost:
+      agenda.EnqueueIfBetter(new_h)
+        
+def multiplicative_search_for_ranking(contestants,costs):
+  contestants = list(contestants)
+  number_of_contestants = len(contestants)
+  sorted_costs = make_sorted_list_of_costs(contestants, costs, reverse=True)
+  #print map( lambda x: float(x), sorted_costs )
+  hypothesis = namedtuple("hypothesis", "actual_cost, cost, state, predecessor, remaining_costs, vertex")
+  initial_hypothesis = hypothesis(
+    actual_cost=fractions.Fraction(1,1),
+    cost=multiplicative_heuristic_cost(number_of_contestants,0,sorted_costs),
+    state=0,
+    predecessor=None,
+    remaining_costs=sorted_costs,
+    vertex=None)
+  
+  agenda = PriorityQueueForSearch( lambda x,y: x.actual_cost < y.actual_cost )
+  agenda.EnqueueIfBetter(initial_hypothesis)
+  goal = bitmap(xrange(number_of_contestants))
+
+  visited_states = dict()
+  nodes_explored = 0
+
+  while not agenda.IsEmpty():
+    h = agenda.Dequeue()
+    
+    if h.state == goal:
+      return h, nodes_explored
+
+    nodes_explored += 1
+    
+    if not h.state in visited_states or visited_states[ h.state ].cost < h.cost:
+      visited_states[ h.state ] = h
+
+    for u in indexes(goal^h.state):
+      new_state = h.state | bitmap([u])
+      added_cost = fractions.Fraction(1,1)
+      number_of_contestants_ranked = count_set_bits(new_state)
+      remaining_costs = list(h.remaining_costs)
+      for v in indexes(goal^new_state):
+        cost = costs[contestants[u]][contestants[v]]
+        added_cost *= cost
+        #previous_length = len(remaining_costs)
+        remaining_costs.remove(cost)
+        #if previous_length <= len(remaining_costs):
+        #  raise Exception
+        remaining_costs.remove(costs[contestants[v]][contestants[u]])
+      new_h = hypothesis(
+        actual_cost=h.actual_cost * added_cost,
+        cost=h.actual_cost * added_cost * multiplicative_heuristic_cost(
+          number_of_contestants,
+          number_of_contestants_ranked,
+          remaining_costs ),
+        state=new_state,
+        predecessor=h,
+        remaining_costs=remaining_costs,
+        vertex=contestants[u] )
+      
+      if not new_h.state in visited_states or visited_states[ new_h.state ].cost < new_h.cost:
         agenda.EnqueueIfBetter(new_h)
         
 def get_lines_from_file(path):
@@ -245,16 +314,28 @@ def find_least_cost_path(lines,cost_function):
   contestants = extract_contestants_from_tournament_file(lines)
   comparison_data = extract_comparison_data_from_tournament_file(lines)
   costs = calculate_costs(contestants,comparison_data,cost_function)
-  sorted_list_of_costs = make_sorted_list_of_costs(contestants,costs)
-  path, nodes_explored = search_for_ranking(contestants,costs)
+  #sorted_list_of_costs = make_sorted_list_of_costs(contestants,costs)
+  path, _ = search_for_ranking(contestants,costs)
+
+  return path
+
+def find_most_probable_path(lines,probability_function):
+  contestants = extract_contestants_from_tournament_file(lines)
+  comparison_data = extract_comparison_data_from_tournament_file(lines)
+  costs = calculate_costs(contestants,comparison_data,probability_function)
+  #sorted_list_of_costs = make_sorted_list_of_costs(contestants,costs)
+  path, _ = multiplicative_search_for_ranking(contestants,costs)
 
   return path
 
 def find_ranking(lines,cost_function):
   return extract_ranking(find_least_cost_path(lines,cost_function))
 
+def find_most_probable_ranking(lines,probability_function):
+  return extract_ranking(find_most_probable_path(lines,probability_function))
+
 def calculate_cost_of_a_false_judgement(datum):
-  return 0 if datum.wins > datum.losses else datum.losses
+  return datum.losses #l0 if datum.wins > datum.losses else datum.losses
 
 def find_fewest_false_judgements_possible(lines):
   return find_least_cost_path(lines,calculate_cost_of_a_false_judgement).actual_cost
@@ -265,7 +346,7 @@ def calculate_prior_probability_of_true_judgement(lines):
   d = 2.0 * x
   return n/d + 1.0/4.0
 
-def close_testimonial_cost(prior_probability_of_true_judgement):
+def old_close_testimonial_cost(prior_probability_of_true_judgement):
   def calculate_testimonial_cost(datum):
     affirmations_in_excess_of_denials = datum.wins - datum.losses
     denials_in_excess_of_affirmations = datum.losses - datum.wins
@@ -282,7 +363,66 @@ def close_testimonial_cost(prior_probability_of_true_judgement):
       x = prior_probability_of_false_judgement**denials_in_excess_of_affirmations
       y = prior_probability_of_true_judgement**denials_in_excess_of_affirmations
 
-    return -math.log( x / ( x + y ) )
+    try:
+      return -math.log( x / ( x + y ) )
+    except:
+      return 10
+      #print "x: %f" % x
+      #print "y: %f" % y
+      #print prior_probability_of_true_judgement
+      #print prior_probability_of_false_judgement
+      #print affirmations_in_excess_of_denials
+      #print denials_in_excess_of_affirmations
+      #raise
+  
+  return calculate_testimonial_cost
+
+def close_testimonial_cost(prior_probability_of_true_judgement):
+  def calculate_testimonial_cost(datum):
+    affirmations_in_excess_of_denials = fractions.Fraction(datum.wins - datum.losses,1)
+    denials_in_excess_of_affirmations = fractions.Fraction(datum.losses - datum.wins,1)
+    prior_probability_of_false_judgement = fractions.Fraction(1,1) - prior_probability_of_true_judgement
+    
+    zero = fractions.Fraction(0,1)
+    
+    if affirmations_in_excess_of_denials == zero:
+      return fractions.Fraction(1,2)
+    
+    if affirmations_in_excess_of_denials > zero:
+      x = prior_probability_of_true_judgement**affirmations_in_excess_of_denials
+      y = prior_probability_of_false_judgement**affirmations_in_excess_of_denials
+
+    if denials_in_excess_of_affirmations > zero:
+      x = prior_probability_of_false_judgement**denials_in_excess_of_affirmations
+      y = prior_probability_of_true_judgement**denials_in_excess_of_affirmations
+      
+    if x < 0:
+      print "x: %f" % x
+      print "y: %f" % y
+      print prior_probability_of_true_judgement
+      print prior_probability_of_false_judgement
+      print affirmations_in_excess_of_denials
+      print denials_in_excess_of_affirmations
+      raise Exception
+    if y < 0:
+      print "x: %f" % x
+      print "y: %f" % y
+      print prior_probability_of_true_judgement
+      print prior_probability_of_false_judgement
+      print affirmations_in_excess_of_denials
+      print denials_in_excess_of_affirmations
+      raise Exception
+
+    try:
+      return x / ( x + y )
+    except:
+      print "x: %f" % x
+      print "y: %f" % y
+      print prior_probability_of_true_judgement
+      print prior_probability_of_false_judgement
+      print affirmations_in_excess_of_denials
+      print denials_in_excess_of_affirmations
+      raise
   
   return calculate_testimonial_cost
 
@@ -392,4 +532,83 @@ def estimate_confidence(path_to_tournament_file,cost_function,iterations):
     if ranking_is_correct( ranking ):
       correctRankings += 1
   return float(correctRankings) / float(iterations)
-        
+
+def estimate_confidence_for_bojar(path_to_tournament_file,iterations):
+  arguments = construct_arguments_for_ranking_generation(path_to_tournament_file)
+  #print arguments.mean_winning_percentage
+  #print arguments.stdev_winning_percentage
+  #print arguments.mean_contests
+  #print arguments.stdev_contests
+  #print arguments.contestants
+  correctRankings = 0
+  for i in xrange(0,iterations):
+    text = generate_tournament_text(arguments)
+    #print "\n".join(text)
+    ranking = bojar_ranking(text)
+    #print ranking
+    if ranking_is_correct( ranking ):
+      correctRankings += 1
+  return float(correctRankings) / float(iterations)
+
+def estimate_confidence_for_probability_function(path_to_tournament_file,probability_function,iterations):
+  arguments = construct_arguments_for_ranking_generation(path_to_tournament_file)
+  #print arguments.mean_winning_percentage
+  #print arguments.stdev_winning_percentage
+  #print arguments.mean_contests
+  #print arguments.stdev_contests
+  #print arguments.contestants
+  correctRankings = 0
+  for i in xrange(0,iterations):
+    text = generate_tournament_text(arguments)
+    #print "\n".join(text)
+    ranking = find_most_probable_ranking(text,probability_function)
+    #print ranking
+    if ranking_is_correct( ranking ):
+      correctRankings += 1
+  return float(correctRankings) / float(iterations)
+
+def are_significantly_different(count1,count2,sample1,sample2):
+  #print standardized_difference_in_proportions(count1,count2,sample1,sample2)
+  return abs(standardized_difference_in_proportions(count1,count2,sample1,sample2)) > 1.96
+
+def estimate_of_proportion(count1,count2,sample1,sample2):
+  return (float(count1)+float(count2)) / (float(sample1)+float(sample2))
+    
+def standard_deviation_in_proportions(count1,count2,sample1,sample2):
+  proportion = estimate_of_proportion(count1,count2,sample1,sample2)
+  return math.sqrt( proportion * (1.0 - proportion) * ( 1.0/sample1 + 1.0/sample2 ) )
+
+def standardized_difference_in_proportions(count1,count2,sample1,sample2):
+  proportion1 = float(count1) / float(sample1)
+  proportion2 = float(count2) / float(sample2)
+  try:
+    return ( proportion1 - proportion2 ) / standard_deviation_in_proportions(count1,count2,sample1,sample2)
+  except ZeroDivisionError:
+    return 0.0
+
+#def find_least_cost_path(lines,cost_function):
+#  contestants = extract_contestants_from_tournament_file(lines)
+#  comparison_data = extract_comparison_data_from_tournament_file(lines)
+#  costs = calculate_costs(contestants,comparison_data,cost_function)
+#  sorted_list_of_costs = make_sorted_list_of_costs(contestants,costs)
+#  path, nodes_explored = search_for_ranking(contestants,costs)
+#
+#  return path
+
+def bojar_statistic(contestant,contestants,comparison_data,comparisons):
+  count = 0
+  for opponent in contestants:
+    count += comparison_data[(contestant,opponent)].wins
+  return float(count) / float(comparisons)
+  
+
+def bojar_ranking(lines):
+  contestants = extract_contestants_from_tournament_file(lines)
+  comparison_data = extract_comparison_data_from_tournament_file(lines)
+  comparisons = count_comparisons(lines)
+  def sort_key(item):
+    return bojar_statistic(item,contestants,comparison_data,comparisons)
+  
+  return '\n'.join(sorted(contestants,key=sort_key,reverse=True)) + '\n'
+
+

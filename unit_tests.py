@@ -273,6 +273,64 @@ def test_find_fewest_false_judgements_possible():
      66 upv-prhlt-combo cmu-heafield-combo >
 '''.splitlines()
   return find_fewest_false_judgements_possible(lines) == 111
+
+def test_bojar_statistic():
+  lines = '''     32 _ref cmu-heafield-combo <
+    219 _ref cmu-heafield-combo >
+     33 _ref upv-prhlt-combo <
+    225 _ref upv-prhlt-combo >
+    219 cmu-heafield-combo _ref <
+     32 cmu-heafield-combo _ref >
+     66 cmu-heafield-combo upv-prhlt-combo <
+    111 cmu-heafield-combo upv-prhlt-combo >
+    225 upv-prhlt-combo _ref <
+     33 upv-prhlt-combo _ref >
+    111 upv-prhlt-combo cmu-heafield-combo <
+     66 upv-prhlt-combo cmu-heafield-combo >
+'''.splitlines()
+  contestants = extract_contestants_from_tournament_file(lines)
+  comparison_data = extract_comparison_data_from_tournament_file(lines)
+  comparisons = count_comparisons(lines)
+  
+  return compare_results(
+    map( lambda x: float(x)/686.0, [444,143,99] ),
+    map(
+      lambda contestant: bojar_statistic(contestant, contestants, comparison_data, comparisons),
+      sorted(contestants) ) )
+  
+def test_bojar_ranking():
+  lines = '''     32 _ref cmu-heafield-combo <
+    219 _ref cmu-heafield-combo >
+     33 _ref upv-prhlt-combo <
+    225 _ref upv-prhlt-combo >
+    219 cmu-heafield-combo _ref <
+     32 cmu-heafield-combo _ref >
+     66 cmu-heafield-combo upv-prhlt-combo <
+    111 cmu-heafield-combo upv-prhlt-combo >
+    225 upv-prhlt-combo _ref <
+     33 upv-prhlt-combo _ref >
+    111 upv-prhlt-combo cmu-heafield-combo <
+     66 upv-prhlt-combo cmu-heafield-combo >
+'''.splitlines()
+  
+  return bojar_ranking(lines) == '''_ref
+cmu-heafield-combo
+upv-prhlt-combo
+'''
+
+def test_are_significantly_different():
+  return compare_results(
+    [False,True,False,True,False,True,False],
+    map( lambda tuple: are_significantly_different( tuple[0], tuple[1], tuple[2], tuple[2] ),
+      [
+        (999,1000,1000),
+        (500,750,1000),
+        (970,980,1000),
+        (703,743,1000),
+        (703,742,1000),
+        (0,100,100),
+        (100,100,100),
+      ] ) )
   
 
 if __name__ == '__main__':
@@ -296,5 +354,8 @@ if __name__ == '__main__':
   print_result('generate_lines_of_tournament_text',test_generate_lines_of_tournament_text())
   print_result('count_comparisons',test_count_comparisons())
   print_result('find_fewest_false_judgements_possible',test_find_fewest_false_judgements_possible())
+  print_result('bojar_statistic',test_bojar_statistic())
+  print_result('bojar_ranking',test_bojar_ranking())
+  print_result('are_significantly_different',test_are_significantly_different())
   
   
